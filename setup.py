@@ -12,5 +12,6 @@ setup(name='Rely',
           'scikit-learn',
           'numpy',
           'pandas',
-          'nibabel'
+          'nibabel',
+          'joblib'
       ])
