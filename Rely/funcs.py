@@ -76,8 +76,8 @@ def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=prin
 
         subjs_data = []
         for subject in subjects:
-            subjs_data.append(_load_subject(subject, template_path,
-                                            contrast, mask=mask, _print=_print))
+            subjs_data.append(_load_subject(subject, contrast, template_path,
+                                            mask=mask, _print=_print))
 
     else:
         subjs_data = Parallel(n_jobs=n_jobs, prefer="threads")(
@@ -313,8 +313,8 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     else:
 
         all_corrs = Parallel(n_jobs=n_jobs)(
-            delayed(get_corrs)(x_labels, r2.copy(),
-                               base_cohens.copy(),
+            delayed(get_corrs)(x_labels, r2,
+                               base_cohens,
                                thresh, _print=_print) for _ in range(n_repeats))
 
     all_corrs = np.array(all_corrs)
