@@ -1,6 +1,7 @@
 from re import sub, template
 import nibabel as nib
 import numpy as np
+from scipy.sparse import base
 from sklearn.linear_model import LinearRegression
 import random
 from sklearn.model_selection import train_test_split
@@ -23,9 +24,9 @@ def get_resid(covars, data):
     dif = data - model.predict(covars)
 
     # Set the residualized data to be, the intercept of the model + the difference
-    resid_data = model.intercept_ + dif
+    resid = model.intercept_ + dif
 
-    return resid_data
+    return resid
 
 def get_cohens(data):
 
@@ -96,17 +97,28 @@ def get_non_nan_overlap_mask(c1, c2):
     return ~np.isnan(c1) & ~np.isnan(c2)
 
 
-def get_corr_size_n(resid_data, base_cohens, n, thresh=None):
+def get_corr_size_n(covars=None, data=None, resid=None,
+                    base_cohens=None, proc_covars_func=None,
+                    n=10, thresh=None):
 
     # Set a random seed based on another random seed (useful in multiproc context)
     np.random.seed(random.randint(1, 10000000))
 
-    # Select a random group of size n from the resid_data
-    index = np.arange(0, len(resid_data))
+    # Select a random group of size n
+    if data is None and resid is not None:
+        index = np.arange(0, len(resid))
+    else: 
+        index = np.arange(0, len(data))
+
     choices = np.random.choice(index, n, replace=False)
 
-    # Calculate the cohens on this subset
-    cohens = get_cohens(resid_data[choices])
+    # If split == every, go through full proc
+    if data is not None and covars is not None:
+        cohens = get_proc_cohens(covars.iloc[choices].copy(), data[choices], proc_covars_func)
+
+    # Otherwise, just calculate based on subset of passed resid
+    else:
+        cohens = get_cohens(resid[choices])
 
     # In the case that the calculated cohens map has any NaN
     # calculate a mask of only non NaN values in either cohens
@@ -120,20 +132,79 @@ def get_corr_size_n(resid_data, base_cohens, n, thresh=None):
 
     return corr
 
-def get_corrs(x_labels, r2, base_cohens, thresh, _print=print):
+def get_corrs(x_labels=None, covars=None, data=None, resid=None,
+              base_cohens=None, proc_covars_func=None, thresh=None, _print=print):
 
     corrs = []
 
     for n in x_labels:
-        corr = get_corr_size_n(r2, base_cohens, n, thresh)
+        corr = get_corr_size_n(covars=covars, data=data, resid=resid, 
+                               base_cohens=base_cohens, proc_covars_func=proc_covars_func,
+                               n=n, thresh=thresh)
         _print('Corr size n=', n, '=', corr, level=2)
         corrs.append(corr)
 
     return corrs
 
+def get_proc_cohens(covars, data, proc_covars_func):
 
+    # Proc seperate if passed
+    if proc_covars_func is not None:
+        covars = proc_covars_func(covars)
+    
+    # Residualize
+    resid = get_resid(covars, data)
+
+    # Generate base cohens map
+    base_cohens = get_cohens(resid)
+
+    return base_cohens
+
+
+def rely(proc_type, covars, data, base_cohens, proc_covars_func,
+         x_labels, n_repeats, thresh, n_jobs, _print):
+
+    if proc_type == 'split':
+        _print('Starting Reliability Test with proc_type = "split"')
+        
+        # Proc seperate if passed
+        if proc_covars_func is not None:
+            covars = proc_covars_func(covars)
+            _print('Applied proc_covars_func on each covars df seperately')
+
+        # Residualize
+        _print('Generate Residualized Data')
+        resid = get_resid(covars, data)
+
+        # Set None
+        covars, data, proc_covars_func = None, None, None
+
+    elif proc_type == 'every':
+        _print('Starting Reliability Test with proc_type = "every"')
+
+        # Set resid None
+        resid = None
+
+    else:
+        raise RuntimeError('proc_type must be "split" or "every"')
+
+    _print('Starting Reliability Test')
+    all_corrs = Parallel(n_jobs=n_jobs)(
+            delayed(get_corrs)(x_labels=x_labels,
+                               covars=covars,
+                               data=data,
+                               resid=resid,
+                               base_cohens=base_cohens,
+                               proc_covars_func=proc_covars_func,
+                               thresh=thresh,
+                               _print=_print) for _ in range(n_repeats))
+         
+    return all_corrs
+
+ 
 def run_rely(covars_df, contrast, template_path, mask=None,
-             proc_covars_func=None, thresh=None, min_size=5,
+             proc_covars_func=None, proc_type='split',
+             thresh=None, min_size=5,
              max_size=1000, every=1, n_repeats=100,
              n_jobs=1, verbose=1):
     ''' Function for computing a basic metric of reliability.
@@ -186,6 +257,17 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         a subset of the covars_df, and then returns a processed version of
         the covar df. This is useful for preforming pre-processing on the
         covars_df seperatly for each group of subjects.
+
+    proc_type : 'split' or 'every'
+        This defines the behavior of the reliability test.
+        In the first case, 'split', the covars df will be processed
+        seperately across each of the two main groups (if proc_covars_func is None),
+        and also each groups residualized data computed on each full half.
+        
+        Alternatively, if 'every' is passed, then the gold standard group will still be processed
+        all together, but the comparison group will be processed and likewise
+        residualized seperately for each comparison group! Warning: this
+        can take longer to compute.
 
     thresh : float or None
         By default, this is set to None. This value if not none
@@ -260,16 +342,6 @@ def run_rely(covars_df, contrast, template_path, mask=None,
                                                 random_state=2)
     _print('len(group1) =', len(g1_subjects), 'len(group2) =', len(g2_subjects))
 
-     # Assign variable to the covariates per group
-    c1 = covars_df.loc[g1_subjects]
-    c2 = covars_df.loc[g2_subjects]
-
-    # Apply processing seperately if requested
-    if proc_covars_func is not None:
-        _print('Applying proc_covars_func on each covars df seperately')
-        c1 = proc_covars_func(c1)
-        c2 = proc_covars_func(c2)
-
     # Load the data - changes the groups if some data not found
     _print('Loading Group 1 Data')
     d1 = get_data(g1_subjects, contrast,
@@ -283,43 +355,34 @@ def run_rely(covars_df, contrast, template_path, mask=None,
                    n_jobs=n_jobs,
                    _print=_print)
 
-    # Residualize by group
-    _print('Generate Residualized Data')
-    r1, r2 = get_resid(c1, d1), get_resid(c2, d2)
+     # Assign variable to the covariates per group
+    c1 = covars_df.loc[g1_subjects].copy()
+    c2 = covars_df.loc[g2_subjects].copy()
 
-    # Set r1 to be the base cohens
-    _print('Generate Comparison Cohens Map')
-    base_cohens = get_cohens(r1)
+    # Generate x_labels
+    x_labels = list(range(min_size, max_size, every))
 
-    # Print out base thresh info
+    # Get base cohens
+    _print('Generate Base/Comparison Cohens Map')
+    base_cohens = get_proc_cohens(c1, d1, proc_covars_func)
+
+    # Print out base thresh info, if thresh passed
     if thresh is not None:
         above_thresh=np.sum(np.abs(base_cohens) > thresh)
         _print(above_thresh, 'above passed pass thresh=', thresh)
 
-    # Based on the pass params, generate different correlations
-    x_labels = list(range(min_size, max_size, every))
-
-    _print('Starting Reliability Test')
-
-    if n_jobs == 1:
-        all_corrs = []
-        
-        for repeat in range(n_repeats):
-            _print('Starting Repeat:', repeat)
-
-            corrs = get_corrs(x_labels, r2, base_cohens,
-                              thresh, _print=_print)
-            all_corrs.append(corrs)
-    else:
-
-        all_corrs = Parallel(n_jobs=n_jobs)(
-            delayed(get_corrs)(x_labels, r2,
-                               base_cohens,
-                               thresh, _print=_print) for _ in range(n_repeats))
-
+    # Run rely seperate based on proc_type
+    all_corrs = rely(
+        proc_type=proc_type, covars=c2, data=d2,
+        base_cohens=base_cohens, proc_covars_func=proc_covars_func,
+        x_labels=x_labels, n_repeats=n_repeats,
+        thresh=thresh, n_jobs=n_jobs, _print=_print)
+  
+    # Convert to array and means by repeat
     all_corrs = np.array(all_corrs)
     corr_means = np.mean(all_corrs, axis=0)
+    corr_stds = np.mean(all_corrs, axis=0)
 
-    return x_labels, corr_means
+    return x_labels, corr_means, corr_stds
 
 
