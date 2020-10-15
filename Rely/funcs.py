@@ -386,3 +386,93 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     return x_labels, corr_means, corr_stds
 
 
+def load_resid_data(covars_df, contrast, template_path, mask=None,
+                    n_jobs=1, verbose=1):
+    ''' Loading residualized data.
+    
+    Parameters
+    ----------
+    covars_df : pandas DataFrame
+        A pandas dataframe containing any co-variates in which
+        the loaded data should be residualized by.
+
+        Note: The dataframe must be indexed by subject name!
+
+    contrast : str
+        The name of the contrast, used along with the template
+        path to define where to load data.
+
+    template_path : str
+        A str indicating the template form for how a single
+        subjects data should be loaded, where SUBJECT will be
+        replaced with that subjects name, and CONTRAST will
+        be replaced with the contrast name.
+
+        For example, so load subject X's contrast Y saved at:
+        some_loc/X_Y.nii.gz.
+        
+        You would pass:
+        some_loc/SUBJECT_CONTRAST.nii.gz
+
+        As the template path.
+
+    mask : str, numpy array or None
+        After data is loaded, it can optionally be
+        masked. By default, this parameter is set to None.
+        If None, then the subjects data will be flattened.
+        If passed a str, it will be assumed to be the location of a mask
+        in which to load, which will then use nibabel's load function
+        and then get_fdata() to extract a binary mask, where the shape
+        of the mask should match the data and also entries set to True or
+        1, indicate that that value be kept when loading data.
+        Lastly, a numpy array, where 1 == a value should be kept, with
+        likewise the same shape as the data to load can be passed here.
+
+    n_jobs : int
+        The number of jobs to try and use for loading and the rely test.
+
+    verbose : int
+        By default this value is 1. This parameter
+        controls the verbosity of this function.
+
+        If -1, then no message at all will be printed.
+        If 0, only warnings will be printed.
+        If 1, general status updates will be printed.
+        If >= 2, full verbosity will be enabled.
+    '''
+
+    def _print(*args, **kwargs):
+
+        if 'level' in kwargs:
+            level = kwargs.pop('level')
+        else:
+            level = 1
+
+        if verbose >= level:
+            print(*args, **kwargs)
+
+    _print('Passed covars df with shape', covars_df.shape)
+    _print('Determining valid subjects')
+    subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
+    all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
+                   delayed(os.path.exists)(s) for s in subj_paths)
+
+    # Only include subject if found!
+    all_subjects = [s for s in covars_df.index if 
+                    os.path.exists(_apply_template(s, contrast, template_path))]
+    _print('Found', len(all_subjects), 'subjects with data')
+
+    # Set covars to just the subjects found
+    covars = covars_df.loc[all_subjects].copy()
+
+    # Load all data
+    _print('Loading Data')
+    data = get_data(all_subjects, contrast,
+                    template_path, mask=mask,
+                    n_jobs=n_jobs,
+                    _print=_print)
+
+    _print('Residualizing Data')
+    resid = get_resid(covars, data)
+
+    return resid
