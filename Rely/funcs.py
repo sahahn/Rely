@@ -475,4 +475,4 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
     _print('Residualizing Data')
     resid = get_resid(covars, data)
 
-    return resid
+    return all_subjects, resid
