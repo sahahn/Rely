@@ -7,6 +7,7 @@ import random
 from sklearn.model_selection import train_test_split
 from joblib import Parallel, delayed
 import os
+from scipy.stats import pearsonr
 
 
 def get_resid(covars, data):
@@ -63,8 +64,7 @@ def _load_subject(subject, contrast, template_path, mask=None, _print=print):
         flat_data = subject_3d_cope[mask == 1]
 
     return flat_data
-
-  
+ 
 def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=print):
 
     # Can pass mask as None, file loc, or numpy array
@@ -92,10 +92,8 @@ def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=prin
     # Return the number of subjects by the sum of the mask
     return np.stack(subjs_data)
 
-
 def get_non_nan_overlap_mask(c1, c2):
     return ~np.isnan(c1) & ~np.isnan(c2)
-
 
 def get_corr_size_n(covars=None, data=None, resid=None,
                     base_cohens=None, proc_covars_func=None,
@@ -129,22 +127,27 @@ def get_corr_size_n(covars=None, data=None, resid=None,
 
     # Calculate the correlation only for the overlap
     corr = np.corrcoef(cohens[valid], base_cohens[valid])[0][1]
+    corr, p_value = pearsonr(cohens[valid], base_cohens[valid])
 
-    return corr
+    return corr, p_value
 
 def get_corrs(x_labels=None, covars=None, data=None, resid=None,
               base_cohens=None, proc_covars_func=None, thresh=None, _print=print):
 
     corrs = []
+    p_values = []
 
     for n in x_labels:
-        corr = get_corr_size_n(covars=covars, data=data, resid=resid, 
-                               base_cohens=base_cohens, proc_covars_func=proc_covars_func,
-                               n=n, thresh=thresh)
-        _print('Corr size n=', n, '=', corr, level=2)
+        corr, p_value =\
+            get_corr_size_n(covars=covars, data=data, resid=resid, 
+                            base_cohens=base_cohens, proc_covars_func=proc_covars_func,
+                            n=n, thresh=thresh)
+        
+        _print('Corr size n=', n, '=', corr, 'p_value=', p_value, level=2)
         corrs.append(corr)
+        p_values.append(p_value)
 
-    return corrs
+    return corrs, p_values
 
 def get_proc_cohens(covars, data, proc_covars_func):
 
@@ -189,7 +192,7 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
         raise RuntimeError('proc_type must be "split" or "every"')
 
     _print('Starting Reliability Test')
-    all_corrs = Parallel(n_jobs=n_jobs)(
+    all_corrs, all_p_values = Parallel(n_jobs=n_jobs)(
             delayed(get_corrs)(x_labels=x_labels,
                                covars=covars,
                                data=data,
@@ -199,7 +202,7 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
                                thresh=thresh,
                                _print=_print) for _ in range(n_repeats))
          
-    return all_corrs
+    return all_corrs, all_p_values
 
  
 def run_rely(covars_df, contrast, template_path, mask=None,
@@ -372,7 +375,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         _print(above_thresh, 'above passed pass thresh=', thresh)
 
     # Run rely seperate based on proc_type
-    all_corrs = rely(
+    all_corrs, all_p_values = rely(
         proc_type=proc_type, covars=c2, data=d2,
         base_cohens=base_cohens, proc_covars_func=proc_covars_func,
         x_labels=x_labels, n_repeats=n_repeats,
@@ -383,7 +386,12 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     corr_means = np.mean(all_corrs, axis=0)
     corr_stds = np.mean(all_corrs, axis=0)
 
-    return x_labels, corr_means, corr_stds
+    # Same with p_values
+    all_p_values = np.array(all_p_values)
+    p_value_means = np.mean(all_p_values, axis=0)
+    p_value_stds = np.mean(all_p_values, axis=0)
+
+    return x_labels, corr_means, corr_stds, p_value_means, p_value_stds
 
 
 def load_resid_data(covars_df, contrast, template_path, mask=None,
