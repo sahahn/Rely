@@ -192,7 +192,7 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
         raise RuntimeError('proc_type must be "split" or "every"')
 
     _print('Starting Reliability Test')
-    all_corrs, all_p_values = Parallel(n_jobs=n_jobs)(
+    output = Parallel(n_jobs=n_jobs)(
             delayed(get_corrs)(x_labels=x_labels,
                                covars=covars,
                                data=data,
@@ -201,6 +201,9 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
                                proc_covars_func=proc_covars_func,
                                thresh=thresh,
                                _print=_print) for _ in range(n_repeats))
+
+    all_corrs = [o[0] for o in output]
+    all_p_values = [o[1] for o in output]
          
     return all_corrs, all_p_values
 
