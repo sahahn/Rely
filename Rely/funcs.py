@@ -329,7 +329,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
             level = 1
 
         if verbose >= level:
-            print(*args, **kwargs)
+            print(*args, **kwargs, flush=True)
 
     _print('Passed covars df with shape', covars_df.shape)
     _print('Determining valid subjects')
