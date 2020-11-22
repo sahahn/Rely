@@ -147,6 +147,8 @@ def get_corrs(x_labels=None, covars=None, data=None, resid=None,
         corrs.append(corr)
         p_values.append(p_value)
 
+    _print('Finished repeat!', level=1)
+
     return corrs, p_values
 
 def get_proc_cohens(covars, data, proc_covars_func):
