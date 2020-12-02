@@ -239,8 +239,7 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
  
 def run_rely(covars_df, contrast, template_path, mask=None,
              stratify=None, proc_covars_func=None,
-             perf_series=None,
-             proc_type='split',
+             perf_series=None, proc_type='split',
              thresh=None, min_size=5,
              max_size=1000, every=1, n_repeats=100,
              n_jobs=1, split_random_state=2, verbose=1):
@@ -288,11 +287,12 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
 
-    stratify : str, or None
-        By default this is None. If passed a value though,
-        then will try to generate the train test splits as stratified by
-        this column within the passed covars_df - will then drop this column
-        from the covars df
+    stratify : None or pandas Series
+        By default this is None. If passed a series though,
+        then this series is expected to be index'ed by subject,
+        with the same subjects as the passed covars_df. This series
+        of values will then be passed to the train_test_split function,
+        and will specify that stratifying behavior is requested.
 
     proc_covars_func : None, function
         By default, this is set to None. Alternatively, you
@@ -301,7 +301,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         the covar df. This is useful for preforming pre-processing on the
         covars_df seperatly for each group of subjects.
 
-    perf_series : None, Series
+    perf_series : None or pandas Series
         By default None. If not None, then this should
         be a series index'ed by subject id. The cohen's
         will not be calculated anymore, instead the reliability
@@ -393,17 +393,21 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     missing_subjects = [s for s in covars_df.index if s not in all_subjects]
     _print('Missing:', missing_subjects)
 
-    _print('Perfoming group split, w/ stratify =', stratify,
-           'random_state =', split_random_state)
+    # Proc the stratify series
     if stratify is not None:
-        stratify_vals = covars_df.loc[all_subjects, stratify]
-        covars_df = covars_df.drop(stratify, axis=1)
+        stratify_vals = stratify.loc[all_subjects]
     else:
         stratify_vals = None
+
+    _print('Perfoming group split, w/ stratify =', stratify is None,
+           'random_state =', split_random_state)
+
+    # Compute the train test split on the sorted subjects (for reproducibility)
     g1_subjects, g2_subjects = train_test_split(sorted(all_subjects),
                                                 test_size=.5,
                                                 random_state=split_random_state,
                                                 stratify=stratify_vals)
+
     _print('len(group1) =', len(g1_subjects), 'len(group2) =', len(g2_subjects))
 
     # Load the data - changes the groups if some data not found
@@ -423,7 +427,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     c1 = covars_df.loc[g1_subjects].copy()
     c2 = covars_df.loc[g2_subjects].copy()
 
-    # If perf series is passed
+    # If perf series is passed, make sure it is set to the right subjects
     if perf_series is not None:
         p1 = perf_series.loc[g1_subjects].copy()
         p2 = perf_series.loc[g2_subjects].copy()
@@ -465,6 +469,11 @@ def run_rely(covars_df, contrast, template_path, mask=None,
 def load_resid_data(covars_df, contrast, template_path, mask=None,
                     n_jobs=1, verbose=1):
     ''' Loading residualized data.
+
+    Note: Unlike run_rely, there is not proc_covars_func, as
+    this function assumes just one group to load, therefore
+    the passed covars_df should be suitably proc'ed before passing
+    here.
     
     Parameters
     ----------
