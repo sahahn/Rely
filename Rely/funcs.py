@@ -507,6 +507,10 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
 
+    resid : bool
+        If the data should be residualized or not. True by default
+        for yes, if False, then raw data will be returned.
+
     n_jobs : int
         The number of jobs to try and use for loading and the rely test.
 
