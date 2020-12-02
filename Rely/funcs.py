@@ -37,6 +37,13 @@ def get_cohens(data):
 
     return cohen
 
+def fast_corr(O, P):
+    
+    n = P.size
+    DO = O - (np.sum(O, 0) / np.double(n))
+    DP = P - (np.sum(P) / np.double(n))
+    return np.dot(DP, DO) / np.sqrt(np.sum(DO ** 2, 0) * np.sum(DP ** 2))
+
 def _apply_template(subject, contrast, template_path):
     
     f = template_path
@@ -96,8 +103,9 @@ def get_non_nan_overlap_mask(c1, c2):
     return ~np.isnan(c1) & ~np.isnan(c2)
 
 def get_corr_size_n(covars=None, data=None, resid=None,
-                    base_cohens=None, proc_covars_func=None,
-                    n=10, thresh=None):
+                    base_map=None, proc_covars_func=None,
+                    perf_series=None,
+                    n=None, thresh=None):
 
     # Set a random seed based on another random seed (useful in multiproc context)
     np.random.seed(random.randint(1, 10000000))
@@ -112,27 +120,40 @@ def get_corr_size_n(covars=None, data=None, resid=None,
 
     # If split == every, go through full proc
     if data is not None and covars is not None:
-        cohens = get_proc_cohens(covars.iloc[choices].copy(), data[choices], proc_covars_func)
+        
+        if perf_series is None:
+            ps = None
+        else:
+            ps = perf_series.iloc[choices].copy()
+        
+        compare_map = get_proc_map(covars.iloc[choices].copy(), data[choices],
+                              proc_covars_func, perf_series=ps)
 
     # Otherwise, just calculate based on subset of passed resid
     else:
-        cohens = get_cohens(resid[choices])
 
-    # In the case that the calculated cohens map has any NaN
-    # calculate a mask of only non NaN values in either cohens
-    valid = get_non_nan_overlap_mask(cohens, base_cohens)
+        if perf_series is None:
+            compare_map = get_cohens(resid[choices])
+        else:
+            compare_map = fast_corr(resid[choices],
+                                    np.array(perf_series.iloc[choices].copy()))
+
+    # In the case that the calculated map has any NaN
+    # calculate a mask of only non NaN values in either compare_map
+    valid = get_non_nan_overlap_mask(compare_map, base_map)
 
     if thresh is not None:
-        valid = valid & (np.abs(base_cohens) > thresh)
+        valid = valid & (np.abs(base_map) > thresh)
 
     # Calculate the correlation only for the overlap
-    corr = np.corrcoef(cohens[valid], base_cohens[valid])[0][1]
-    corr, p_value = pearsonr(cohens[valid], base_cohens[valid])
+    corr = np.corrcoef(compare_map[valid], base_map[valid])[0][1]
+    corr, p_value = pearsonr(compare_map[valid], base_map[valid])
 
     return corr, p_value
 
 def get_corrs(x_labels=None, covars=None, data=None, resid=None,
-              base_cohens=None, proc_covars_func=None, thresh=None, _print=print):
+              base_map=None, proc_covars_func=None, perf_series=None,
+              thresh=None, _print=print):
 
     corrs = []
     p_values = []
@@ -140,7 +161,8 @@ def get_corrs(x_labels=None, covars=None, data=None, resid=None,
     for n in x_labels:
         corr, p_value =\
             get_corr_size_n(covars=covars, data=data, resid=resid, 
-                            base_cohens=base_cohens, proc_covars_func=proc_covars_func,
+                            base_map=base_map, proc_covars_func=proc_covars_func,
+                            perf_series=perf_series,
                             n=n, thresh=thresh)
         
         _print('Corr size n=', n, '=', corr, 'p_value=', p_value, level=2)
@@ -151,23 +173,27 @@ def get_corrs(x_labels=None, covars=None, data=None, resid=None,
 
     return corrs, p_values
 
-def get_proc_cohens(covars, data, proc_covars_func):
 
-    # Proc seperate if passed
+def get_proc_map(covars, data, proc_covars_func, perf_series=None):
+
+     # Proc seperate if passed
     if proc_covars_func is not None:
         covars = proc_covars_func(covars)
     
     # Residualize
     resid = get_resid(covars, data)
 
-    # Generate base cohens map
-    base_cohens = get_cohens(resid)
+    # Generate coehns if no perf_series
+    if perf_series is None:
+        return get_cohens(resid)
 
-    return base_cohens
+    # Otherwise, generate correlation w/ perf_series
+    else:
+        return fast_corr(resid, np.array(perf_series))
 
 
-def rely(proc_type, covars, data, base_cohens, proc_covars_func,
-         x_labels, n_repeats, thresh, n_jobs, _print):
+def rely(proc_type, covars, data, base_map, proc_covars_func,
+         perf_series, x_labels, n_repeats, thresh, n_jobs, _print):
 
     if proc_type == 'split':
         _print('Starting Reliability Test with proc_type = "split"')
@@ -199,8 +225,9 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
                                covars=covars,
                                data=data,
                                resid=resid,
-                               base_cohens=base_cohens,
+                               base_map=base_map,
                                proc_covars_func=proc_covars_func,
+                               perf_series=perf_series,
                                thresh=thresh,
                                _print=_print) for _ in range(n_repeats))
 
@@ -211,14 +238,16 @@ def rely(proc_type, covars, data, base_cohens, proc_covars_func,
 
  
 def run_rely(covars_df, contrast, template_path, mask=None,
-             proc_covars_func=None, proc_type='split',
+             stratify=None, proc_covars_func=None,
+             perf_series=None,
+             proc_type='split',
              thresh=None, min_size=5,
              max_size=1000, every=1, n_repeats=100,
-             n_jobs=1, verbose=1):
+             n_jobs=1, split_random_state=2, verbose=1):
     ''' Function for computing a basic metric of reliability.
 
     If there are any NaN's in either the group to compare,
-    or the base cohens map, they will be excluded from the calculation
+    or the base map, they will be excluded from the calculation
     of correlation between the two maps.
     
     Parameters
@@ -259,12 +288,25 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
 
+    stratify : str, or None
+        By default this is None. If passed a value though,
+        then will try to generate the train test splits as stratified by
+        this column within the passed covars_df - will then drop this column
+        from the covars df
+
     proc_covars_func : None, function
         By default, this is set to None. Alternatively, you
         may pass a function in which the first positional argument accepts
         a subset of the covars_df, and then returns a processed version of
         the covar df. This is useful for preforming pre-processing on the
         covars_df seperatly for each group of subjects.
+
+    perf_series : None, Series
+        By default None. If not None, then this should
+        be a series index'ed by subject id. The cohen's
+        will not be calculated anymore, instead the reliability
+        for the residualized data as correlated with this
+        series will be computed instead.
 
     proc_type : 'split' or 'every'
         This defines the behavior of the reliability test.
@@ -280,9 +322,9 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     thresh : float or None
         By default, this is set to None. This value if not none
         indicates an absolute value threshold in which only voxels / vertex
-        in the comparison cohens map above this threshold should be used
+        in the comparison map above this threshold should be used
         to calculate the correlation between the random group and this
-        base cohens map.
+        base map.
 
     min_size : int
         By default this is set to 5. This is the starting
@@ -312,6 +354,10 @@ def run_rely(covars_df, contrast, template_path, mask=None,
 
     n_jobs : int
         The number of jobs to try and use for loading and the rely test.
+
+    split_random_state : int
+        By default 2. Can pass different ints.
+        This is the random state for the random tr test split.
 
     verbose : int
         By default this value is 1. This parameter
@@ -344,10 +390,20 @@ def run_rely(covars_df, contrast, template_path, mask=None,
                     os.path.exists(_apply_template(s, contrast, template_path))]
     _print('Found', len(all_subjects), 'subjects with data')
 
-    _print('Perfoming group split')
-    g1_subjects, g2_subjects = train_test_split(all_subjects,
+    missing_subjects = [s for s in covars_df.index if s not in all_subjects]
+    _print('Missing:', missing_subjects)
+
+    _print('Perfoming group split, w/ stratify =', stratify,
+           'random_state =', split_random_state)
+    if stratify is not None:
+        stratify_vals = covars_df.loc[all_subjects, stratify]
+        covars_df = covars_df.drop(stratify, axis=1)
+    else:
+        stratify_vals = None
+    g1_subjects, g2_subjects = train_test_split(sorted(all_subjects),
                                                 test_size=.5,
-                                                random_state=2)
+                                                random_state=split_random_state,
+                                                stratify=stratify_vals)
     _print('len(group1) =', len(g1_subjects), 'len(group2) =', len(g2_subjects))
 
     # Load the data - changes the groups if some data not found
@@ -367,23 +423,30 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     c1 = covars_df.loc[g1_subjects].copy()
     c2 = covars_df.loc[g2_subjects].copy()
 
+    # If perf series is passed
+    if perf_series is not None:
+        p1 = perf_series.loc[g1_subjects].copy()
+        p2 = perf_series.loc[g2_subjects].copy()
+    else:
+        p1, p2 = None, None
+
     # Generate x_labels
     x_labels = list(range(min_size, max_size, every))
 
-    # Get base cohens
-    _print('Generate Base/Comparison Cohens Map')
-    base_cohens = get_proc_cohens(c1, d1, proc_covars_func)
+    # Get base map, cohens or perf corr
+    _print('Generate Base/Comparison Map')
+    base_map = get_proc_map(c1, d1, proc_covars_func, perf_series=p1)
 
     # Print out base thresh info, if thresh passed
     if thresh is not None:
-        above_thresh=np.sum(np.abs(base_cohens) > thresh)
+        above_thresh=np.sum(np.abs(base_map) > thresh)
         _print(above_thresh, 'above passed pass thresh=', thresh)
 
     # Run rely seperate based on proc_type
     all_corrs, all_p_values = rely(
         proc_type=proc_type, covars=c2, data=d2,
-        base_cohens=base_cohens, proc_covars_func=proc_covars_func,
-        x_labels=x_labels, n_repeats=n_repeats,
+        base_map=base_map, proc_covars_func=proc_covars_func,
+        perf_series=p2, x_labels=x_labels, n_repeats=n_repeats,
         thresh=thresh, n_jobs=n_jobs, _print=_print)
   
     # Convert to array and means by repeat
