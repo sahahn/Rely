@@ -1,7 +1,5 @@
-from re import sub, template
 import nibabel as nib
 import numpy as np
-from scipy.sparse import base
 from sklearn.linear_model import LinearRegression
 import random
 from sklearn.model_selection import train_test_split
@@ -173,7 +171,6 @@ def get_corrs(x_labels=None, covars=None, data=None, resid=None,
 
     return corrs, p_values
 
-
 def get_proc_map(covars, data, proc_covars_func, perf_series=None):
 
      # Proc seperate if passed
@@ -190,7 +187,6 @@ def get_proc_map(covars, data, proc_covars_func, perf_series=None):
     # Otherwise, generate correlation w/ perf_series
     else:
         return fast_corr(resid, np.array(perf_series))
-
 
 def rely(proc_type, covars, data, base_map, proc_covars_func,
          perf_series, x_labels, n_repeats, thresh, n_jobs, _print):
@@ -236,7 +232,6 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
          
     return all_corrs, all_p_values
 
- 
 def run_rely(covars_df, contrast, template_path, mask=None,
              stratify=None, proc_covars_func=None,
              perf_series=None, proc_type='split',
@@ -399,7 +394,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     else:
         stratify_vals = None
 
-    _print('Perfoming group split, w/ stratify =', stratify is None,
+    _print('Perfoming group split, w/ stratify =', stratify is not None,
            'random_state =', split_random_state)
 
     # Compute the train test split on the sorted subjects (for reproducibility)
@@ -464,7 +459,6 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     p_value_stds = np.mean(all_p_values, axis=0)
 
     return x_labels, corr_means, corr_stds, p_value_means, p_value_stds
-
 
 def load_resid_data(covars_df, contrast, template_path, mask=None,
                     n_jobs=1, verbose=1):
