@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(name='Rely',
-      version='1.02',
+      version='1.1',
       description='Functions for computing simple measures of reliability.',
       url='http://github.com/sahahn/Rely',
       author='Sage Hahn',
