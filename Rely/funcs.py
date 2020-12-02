@@ -461,8 +461,8 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     return x_labels, corr_means, corr_stds, p_value_means, p_value_stds
 
 def load_resid_data(covars_df, contrast, template_path, mask=None,
-                    n_jobs=1, verbose=1):
-    ''' Loading residualized data.
+                    resid=True, n_jobs=1, verbose=1):
+    ''' Loading residualized data. Or non-residualized... 
 
     Note: Unlike run_rely, there is not proc_covars_func, as
     this function assumes just one group to load, therefore
@@ -551,7 +551,14 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
                     n_jobs=n_jobs,
                     _print=_print)
 
-    _print('Residualizing Data')
-    resid = get_resid(covars, data)
+    if resid:
 
-    return all_subjects, resid
+        _print('Residualizing Data')
+        resid = get_resid(covars, data)
+
+        return all_subjects, resid
+
+    else:
+
+        _print('Returning Raw Data')
+        return all_subjects, data
