@@ -49,28 +49,33 @@ def _apply_template(subject, contrast, template_path):
     
     return f
 
-def _load_subject(subject, contrast, template_path, mask=None, _print=print):
+def _load_subject(subject, contrast, template_path, mask=None, index_slice=None, _print=print):
 
     # Get the specific path for this subject based on the passed template
     f = _apply_template(subject, contrast, template_path)
 
-    # Load in the file, and extract the data as np array
     _print('Loading:', f, level=2)
 
+    # Load in the file as nibabel
     data = nib.load(f)
-    subject_3d_cope = data.get_fdata()
+
+    if index_slice is not None:
+        raw = data.dataobj[index_slice]
+    else:
+        raw = data.get_fdata()
 
     # If no brain mask, just flatten
     if mask is None:
-        flat_data = subject_3d_cope.flatten()
+        flat_data = raw.flatten()
     
     # Create 1D version of that cope based on the mask
     else:
-        flat_data = subject_3d_cope[mask == 1]
+        flat_data = raw[mask == 1]
 
     return flat_data
  
-def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=print):
+def get_data(subjects, contrast, template_path, mask=None,
+             index_slice=None, n_jobs=1, _print=print):
 
     # Can pass mask as None, file loc, or numpy array
     if mask is not None:
@@ -83,7 +88,8 @@ def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=prin
         subjs_data = []
         for subject in subjects:
             subjs_data.append(_load_subject(subject, contrast, template_path,
-                                            mask=mask, _print=_print))
+                                            mask=mask, index_slice=index_slice,
+                                            _print=_print))
 
     else:
         subjs_data = Parallel(n_jobs=n_jobs, prefer="threads")(
@@ -92,6 +98,7 @@ def get_data(subjects, contrast, template_path, mask=None, n_jobs=1, _print=prin
                 contrast=contrast,
                 template_path=template_path,
                 mask=mask,
+                index_slice=index_slice,
                 _print=_print) for subject in subjects)
 
     # Return the number of subjects by the sum of the mask
@@ -233,7 +240,7 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
     return all_corrs, all_p_values
 
 def run_rely(covars_df, contrast, template_path, mask=None,
-             stratify=None, proc_covars_func=None,
+             index_slice=None, stratify=None, proc_covars_func=None,
              perf_series=None, proc_type='split',
              thresh=None, min_size=5,
              max_size=1000, every=1, n_repeats=100,
@@ -281,6 +288,23 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         1, indicate that that value be kept when loading data.
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
+
+    index_slice : slices, tuple of slices, or None
+        You may optional pass index slicing here. This will be applied
+        before the mask. The benefit of using index slicing over a mask
+        is that in the case where say your data is of shape 5 x 20 on
+        the disk, but you only need the data in the first 20, e.g.,
+        so with traditional slicing that is [0], in this case by using the
+        mask you have to load the full data from the disk, then slice it.
+        But if you pass slice(0) here, then this accomplishes the same thing,
+        but only loads the requested slice from the disk.
+
+        You must use slice for complex slicing, in the example above you could just
+        pass (0) or slice(0), but if you wanted something more complex, e.g. passing
+        something like my_array[1:5:2, ::3] you should pass
+        (slice(1,5,2), slice(None,None,3)) here.
+        
+        By default this is None.
 
     stratify : None or pandas Series
         By default this is None. If passed a series though,
@@ -409,12 +433,14 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     _print('Loading Group 1 Data')
     d1 = get_data(g1_subjects, contrast,
                   template_path, mask=mask,
+                  index_slice=index_slice,
                   n_jobs=n_jobs,
                   _print=_print)
 
     _print('Loading Group 2 Data')
     d2  = get_data(g2_subjects, contrast,
                    template_path, mask=mask,
+                   index_slice=index_slice,
                    n_jobs=n_jobs,
                    _print=_print)
 
@@ -461,7 +487,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     return x_labels, corr_means, corr_stds, p_value_means, p_value_stds
 
 def load_resid_data(covars_df, contrast, template_path, mask=None,
-                    resid=True, n_jobs=1, verbose=1):
+                    index_slice=None, resid=True, n_jobs=1, verbose=1):
     ''' Loading residualized data. Or non-residualized... 
 
     Note: Unlike run_rely, there is not proc_covars_func, as
@@ -506,6 +532,23 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
         1, indicate that that value be kept when loading data.
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
+
+    index_slice : slices, tuple of slices, or None
+        You may optional pass index slicing here. This will be applied
+        before the mask. The benefit of using index slicing over a mask
+        is that in the case where say your data is of shape 5 x 20 on
+        the disk, but you only need the data in the first 20, e.g.,
+        so with traditional slicing that is [0], in this case by using the
+        mask you have to load the full data from the disk, then slice it.
+        But if you pass slice(0) here, then this accomplishes the same thing,
+        but only loads the requested slice from the disk.
+
+        You must use slice for complex slicing, in the example above you could just
+        pass (0) or slice(0), but if you wanted something more complex, e.g. passing
+        something like my_array[1:5:2, ::3] you should pass
+        (slice(1,5,2), slice(None,None,3)) here.
+        
+        By default this is None.
 
     resid : bool
         If the data should be residualized or not. True by default
@@ -552,6 +595,7 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
     _print('Loading Data')
     data = get_data(all_subjects, contrast,
                     template_path, mask=mask,
+                    index_slice=index_slice,
                     n_jobs=n_jobs,
                     _print=_print)
 
