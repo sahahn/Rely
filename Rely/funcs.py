@@ -8,7 +8,40 @@ import os
 from scipy.stats import pearsonr
 
 
-def get_resid(covars, data):
+def get_resid_with_nans(covars, data):
+
+    # Go from pandas df to numpy array
+    covars = np.array(covars)
+
+    # Make sure data is numpy array
+    data = np.array(data)
+    
+    # Init empty resid array of NaN's
+    resid = np.empty(shape=data.shape)
+    resid[:] = np.nan
+    
+    # For each feature seperately
+    for i in range(data.shape[1]):
+        
+        # Operate on non-nan subjects for this feature
+        mask = ~np.isnan(data[:, i])
+        
+        # Fit model
+        model = LinearRegression().fit(covars[mask], data[mask, i])
+        
+        # Compute difference of real value - predicted
+        dif_i = data[mask, i] - model.predict(covars[mask])
+        
+        # Set resid as diff + intercept
+        resid_i = model.intercept_ + dif_i
+        
+        # Fill in NaN mask
+        resid[mask, i] = resid_i
+    
+    return resid
+
+
+def get_resid_base(covars, data):
 
     # Go from pandas df to numpy array
     covars = np.array(covars)
@@ -27,13 +60,35 @@ def get_resid(covars, data):
 
     return resid
 
-def get_cohens(data):
+
+def get_resid(covars, data):
+
+    if np.isnan(data).any():
+        return get_resid_with_nans(covars, data)
+    return get_resid_base(covars, data)
+
+
+def get_cohens_with_nan(data):
+
+    mean = np.nanmean(data, axis=0)
+    std = np.nanstd(data, axis=0)
+    cohen = mean / std
+
+    return cohen
+
+def get_cohens_base(data):
 
     mean = np.mean(data, axis=0)
     std = np.std(data, axis=0)
     cohen = mean / std
 
     return cohen
+
+def get_cohens(data):
+
+    if np.isnan(data).any():
+        return get_cohens_with_nan(data)
+    return get_cohens_base(data)
 
 def fast_corr(O, P):
     
@@ -247,9 +302,21 @@ def run_rely(covars_df, contrast, template_path, mask=None,
              n_jobs=1, split_random_state=2, verbose=1):
     ''' Function for computing a basic metric of reliability.
 
-    If there are any NaN's in either the group to compare,
-    or the base map, they will be excluded from the calculation
-    of correlation between the two maps.
+    Notes on NaN's:
+    - NaN's may not be passed in the covars_df, stratify or perf_series.
+
+    - If there are any NaN's in the data, when residualizing each voxel/vertex,
+    that subject will be excluded from calculating that voxel/vertex's residual,
+    but will still be included in every case where they have a non-nan value.
+    Essentially the NaN value will propegate into the residualized data.
+    Likewise, when calculating the cohen's map, any nan values will simply
+    be skipped when calculating the mean and std. 
+
+    - If there are any NaN's in either the group to compares cohens map,
+    or the base cohen's map, then those voxels / vertex will be excluded
+    when calculating the correlation coef. between the two maps. NaN's
+    will show up here if the standard deviation for that feature
+    across subjects is 0.
     
     Parameters
     ----------
