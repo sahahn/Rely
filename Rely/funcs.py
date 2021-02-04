@@ -26,17 +26,22 @@ def get_resid_with_nans(covars, data):
         # Operate on non-nan subjects for this feature
         mask = ~np.isnan(data[:, i])
         
-        # Fit model
-        model = LinearRegression().fit(covars[mask], data[mask, i])
+        # If not atleast 2 subjects valid,
+        # skip and propegate NaN's for this
+        # voxel.
+        if len(mask) > 1:
         
-        # Compute difference of real value - predicted
-        dif_i = data[mask, i] - model.predict(covars[mask])
-        
-        # Set resid as diff + intercept
-        resid_i = model.intercept_ + dif_i
-        
-        # Fill in NaN mask
-        resid[mask, i] = resid_i
+            # Fit model
+            model = LinearRegression().fit(covars[mask], data[mask, i])
+            
+            # Compute difference of real value - predicted
+            dif_i = data[mask, i] - model.predict(covars[mask])
+            
+            # Set resid as diff + intercept
+            resid_i = model.intercept_ + dif_i
+            
+            # Fill in NaN mask
+            resid[mask, i] = resid_i
     
     return resid
 
