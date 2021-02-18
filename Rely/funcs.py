@@ -26,7 +26,7 @@ def get_resid_with_nans(covars, data):
         # Operate on non-nan subjects for this feature
         mask = ~np.isnan(data[:, i])
         
-        # If not atleast 2 subjects valid,
+        # If not at least 2 subjects valid,
         # skip and propegate NaN's for this
         # voxel.
         if len(mask) > 1:
@@ -240,14 +240,14 @@ def get_corrs(x_labels=None, covars=None, data=None, resid=None,
 
 def get_proc_map(covars, data, proc_covars_func, perf_series=None):
 
-     # Proc seperate if passed
+     # Proc separate if passed
     if proc_covars_func is not None:
         covars = proc_covars_func(covars)
     
     # Residualize
     resid = get_resid(covars, data)
 
-    # Generate coehns if no perf_series
+    # Generate cohens if no perf_series
     if perf_series is None:
         return get_cohens(resid)
 
@@ -299,6 +299,34 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
          
     return all_corrs, all_p_values
 
+def setup_subjects(covars_df, template_path, contrast, n_jobs, verbose):
+
+    def _print(*args, **kwargs):
+
+        if 'level' in kwargs:
+            level = kwargs.pop('level')
+        else:
+            level = 1
+
+        if verbose >= level:
+            print(*args, **kwargs, flush=True)
+
+    _print('Passed covars df with shape', covars_df.shape)
+    _print('Determining valid subjects')
+    subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
+    all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
+                   delayed(os.path.exists)(s) for s in subj_paths)
+
+    # Only include subject if found!
+    all_subjects = [s for s in covars_df.index if 
+                    os.path.exists(_apply_template(s, contrast, template_path))]
+    _print('Found', len(all_subjects), 'subjects with data')
+
+    missing_subjects = [s for s in covars_df.index if s not in all_subjects]
+    _print('Missing:', missing_subjects)
+
+    return all_subjects, _print
+
 def run_rely(covars_df, contrast, template_path, mask=None,
              index_slice=None, stratify=None, proc_covars_func=None,
              perf_series=None, proc_type='split',
@@ -329,7 +357,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         A pandas dataframe containing any co-variates in which
         the loaded data should be residualized by.
 
-        Note: The dataframe must be index'ed by subject name!
+        Note: The dataframe must be indexed by subject name!
 
     contrast : str
         The name of the contrast, used along with the template
@@ -380,7 +408,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
 
     stratify : None or pandas Series
         By default this is None. If passed a series though,
-        then this series is expected to be index'ed by subject,
+        then this series is expected to be indexed by subject,
         with the same subjects as the passed covars_df. This series
         of values will then be passed to the train_test_split function,
         and will specify that stratifying behavior is requested.
@@ -390,11 +418,11 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         may pass a function in which the first positional argument accepts
         a subset of the covars_df, and then returns a processed version of
         the covar df. This is useful for preforming pre-processing on the
-        covars_df seperatly for each group of subjects.
+        covars_df separately for each group of subjects.
 
     perf_series : None or pandas Series
         By default None. If not None, then this should
-        be a series index'ed by subject id. The cohen's
+        be a series indexed by subject id. The cohen's
         will not be calculated anymore, instead the reliability
         for the residualized data as correlated with this
         series will be computed instead.
@@ -447,7 +475,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         The number of jobs to try and use for loading and the rely test.
 
     split_random_state : int
-        By default 2. Can pass different ints.
+        By default 2. Can pass different int's.
         This is the random state for the random tr test split.
 
     verbose : int
@@ -459,30 +487,9 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         If 1, general status updates will be printed.
         If >= 2, full verbosity will be enabled.
     '''
-
-    def _print(*args, **kwargs):
-
-        if 'level' in kwargs:
-            level = kwargs.pop('level')
-        else:
-            level = 1
-
-        if verbose >= level:
-            print(*args, **kwargs, flush=True)
-
-    _print('Passed covars df with shape', covars_df.shape)
-    _print('Determining valid subjects')
-    subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
-    all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
-                   delayed(os.path.exists)(s) for s in subj_paths)
-
-    # Only include subject if found!
-    all_subjects = [s for s in covars_df.index if 
-                    os.path.exists(_apply_template(s, contrast, template_path))]
-    _print('Found', len(all_subjects), 'subjects with data')
-
-    missing_subjects = [s for s in covars_df.index if s not in all_subjects]
-    _print('Missing:', missing_subjects)
+    
+    # Get all subjects and setup
+    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
 
     # Proc the stratify series
     if stratify is not None:
@@ -490,7 +497,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     else:
         stratify_vals = None
 
-    _print('Perfoming group split, w/ stratify =', stratify is not None,
+    _print('Performing group split, w/ stratify =', stratify is not None,
            'random_state =', split_random_state)
 
     # Compute the train test split on the sorted subjects (for reproducibility)
@@ -516,7 +523,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
                    n_jobs=n_jobs,
                    _print=_print)
 
-     # Assign variable to the covariates per group
+     # Assign variable to the co-variates per group
     c1 = covars_df.loc[g1_subjects].copy()
     c2 = covars_df.loc[g2_subjects].copy()
 
@@ -539,7 +546,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         above_thresh=np.sum(np.abs(base_map) > thresh)
         _print(above_thresh, 'above passed pass thresh=', thresh)
 
-    # Run rely seperate based on proc_type
+    # Run rely separate based on proc_type
     all_corrs, all_p_values = rely(
         proc_type=proc_type, covars=c2, data=d2,
         base_map=base_map, proc_covars_func=proc_covars_func,
@@ -639,26 +646,8 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
         If >= 2, full verbosity will be enabled.
     '''
 
-    def _print(*args, **kwargs):
-
-        if 'level' in kwargs:
-            level = kwargs.pop('level')
-        else:
-            level = 1
-
-        if verbose >= level:
-            print(*args, **kwargs)
-
-    _print('Passed covars df with shape', covars_df.shape)
-    _print('Determining valid subjects')
-    subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
-    all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
-                   delayed(os.path.exists)(s) for s in subj_paths)
-
-    # Only include subject if found!
-    all_subjects = [s for s in covars_df.index if 
-                    os.path.exists(_apply_template(s, contrast, template_path))]
-    _print('Found', len(all_subjects), 'subjects with data')
+    # Get all subjects and setup
+    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
 
     # Set covars to just the subjects found
     covars = covars_df.loc[all_subjects].copy()
