@@ -768,28 +768,17 @@ def run_ttest_1samp(covars_df, contrast,
         If >= 2, full verbosity will be enabled.
     '''
 
-    # Get all subjects and setup
-    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
-
-    # Set covars to just the subjects found
-    covars = covars_df.loc[all_subjects].copy()
-
-    # Load all data
-    _print('Loading Data')
-    data = get_data(all_subjects, contrast,
-                    template_path, mask=mask,
-                    index_slice=index_slice,
-                    n_jobs=n_jobs,
-                    _print=_print)
+    # Load resid data
+    all_subjects, data =\
+        load_resid_data(covars_df=covars_df, contrast=contrast, template_path=template_path, mask=mask,
+                        index_slice=index_slice, resid=True, n_jobs=n_jobs, verbose=verbose)
     
-    # Resid data
-    _print('Residualizing Data')
-    resid = get_resid(covars, data)
-
-    ttest_result = ttest_1samp(resid, popmean=popmean, nan_policy='omit')
-
+    # Run ttest
+    ttest_result = ttest_1samp(data, popmean=popmean, nan_policy='omit')
+    
+    # Run FDR
     corrected_p_values = fdrcorrection(ttest_result.pvalue, alpha=alpha)
 
-    return ttest_result.statistic, corrected_p_values
+    return all_subjects, ttest_result.statistic, corrected_p_values
   
 
