@@ -5,8 +5,8 @@ import random
 from sklearn.model_selection import train_test_split
 from joblib import Parallel, delayed
 import os
-from scipy.stats import pearsonr
-
+from scipy.stats import pearsonr, ttest_1samp
+from statsmodels.stats.multitest import fdrcorrection
 
 def get_resid_with_nans(covars, data):
 
@@ -671,3 +671,125 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
 
         _print('Returning Raw Data')
         return all_subjects, data
+
+
+def run_ttest_1samp(covars_df, contrast,
+                    template_path, popmean=0,
+                    alpha=.05,
+                    mask=None, index_slice=None,
+                    n_jobs=1, verbose=1):
+    '''
+    For the t-test uses:
+    https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.ttest_1samp.html
+
+    For p-value correction uses:
+    https://www.statsmodels.org/stable/generated/statsmodels.stats.multitest.fdrcorrection.html
+
+    Parameters
+    -----------
+    covars_df : pandas DataFrame
+        A pandas dataframe containing any co-variates in which
+        the loaded data should be residualized by.
+
+        Note: The dataframe must be indexed by subject name!
+
+    contrast : str
+        The name of the contrast, used along with the template
+        path to define where to load data.
+
+    template_path : str
+        A str indicating the template form for how a single
+        subjects data should be loaded, where SUBJECT will be
+        replaced with that subjects name, and CONTRAST will
+        be replaced with the contrast name.
+
+        For example, so load subject X's contrast Y saved at:
+        some_loc/X_Y.nii.gz.
+        
+        You would pass:
+        some_loc/SUBJECT_CONTRAST.nii.gz
+
+        As the template path.
+
+    popmean : float or array_like, optional
+        Expected value in null hypothesis. If array_like,
+        then it must have the same shape as a excluding the axis dimension.
+
+        default = 0
+
+    alpha : float
+        The error rate in the fdr correction.
+
+        covars_df : pandas DataFrame
+        A pandas dataframe containing any co-variates in which
+        the loaded data should be residualized by.
+
+        Note: The dataframe must be indexed by subject name!
+
+    mask : str, numpy array or None
+        After data is loaded, it can optionally be
+        masked. By default, this parameter is set to None.
+        If None, then the subjects data will be flattened.
+        If passed a str, it will be assumed to be the location of a mask
+        in which to load, which will then use nibabel's load function
+        and then get_fdata() to extract a binary mask, where the shape
+        of the mask should match the data and also entries set to True or
+        1, indicate that that value be kept when loading data.
+        Lastly, a numpy array, where 1 == a value should be kept, with
+        likewise the same shape as the data to load can be passed here.
+
+    index_slice : slices, tuple of slices, or None
+        You may optional pass index slicing here. This will be applied
+        before the mask. The benefit of using index slicing over a mask
+        is that in the case where say your data is of shape 5 x 20 on
+        the disk, but you only need the data in the first 20, e.g.,
+        so with traditional slicing that is [0], in this case by using the
+        mask you have to load the full data from the disk, then slice it.
+        But if you pass slice(0) here, then this accomplishes the same thing,
+        but only loads the requested slice from the disk.
+
+        You must use slice for complex slicing, in the example above you could just
+        pass (0) or slice(0), but if you wanted something more complex, e.g. passing
+        something like my_array[1:5:2, ::3] you should pass
+        (slice(1,5,2), slice(None,None,3)) here.
+        
+        By default this is None.
+
+    n_jobs : int
+        The number of jobs to try and use for loading and the rely test.
+
+    verbose : int
+        By default this value is 1. This parameter
+        controls the verbosity of this function.
+
+        If -1, then no message at all will be printed.
+        If 0, only warnings will be printed.
+        If 1, general status updates will be printed.
+        If >= 2, full verbosity will be enabled.
+    '''
+
+    # Get all subjects and setup
+    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
+
+    # Set covars to just the subjects found
+    covars = covars_df.loc[all_subjects].copy()
+
+    # Load all data
+    _print('Loading Data')
+    data = get_data(all_subjects, contrast,
+                    template_path, mask=mask,
+                    index_slice=index_slice,
+                    n_jobs=n_jobs,
+                    _print=_print)
+    
+    # Resid data
+    _print('Residualizing Data')
+    resid = get_resid(covars, data)
+
+    ttest_result = ttest_1samp(resid, popmean=popmean, nan_policy='omit')
+
+    corrected_p_values = fdrcorrection(ttest_result.pvalue, alpha=alpha)
+
+    return ttest_result.statistic, corrected_p_values
+  
+
