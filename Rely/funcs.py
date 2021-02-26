@@ -45,7 +45,6 @@ def get_resid_with_nans(covars, data):
     
     return resid
 
-
 def get_resid_base(covars, data):
 
     # Go from pandas df to numpy array
@@ -65,13 +64,11 @@ def get_resid_base(covars, data):
 
     return resid
 
-
 def get_resid(covars, data):
 
     if np.isnan(data).any():
         return get_resid_with_nans(covars, data)
     return get_resid_base(covars, data)
-
 
 def get_cohens_with_nan(data):
 
@@ -672,7 +669,6 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
         _print('Returning Raw Data')
         return all_subjects, data
 
-
 def run_1samp_summary(covars_df, contrast,
                       template_path, popmean=0,
                       alpha=.05,
@@ -801,7 +797,6 @@ def run_1samp_summary(covars_df, contrast,
     results['subjects'] = all_subjects
     return results
   
-
 def reverse_mask_data(data, mask):
     '''If mask is None, return passed data as is.'''
 
@@ -829,7 +824,6 @@ def reverse_mask_data(data, mask):
 
     # If single subject
     return _project_single_subj(data, mask, mask_affine)
-
 
 def _project_single_subj(subj, mask, mask_affine):
 
