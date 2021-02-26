@@ -673,11 +673,12 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
         return all_subjects, data
 
 
-def run_ttest_1samp(covars_df, contrast,
-                    template_path, popmean=0,
-                    alpha=.05,
-                    mask=None, index_slice=None,
-                    n_jobs=1, verbose=1):
+def run_1samp_summary(covars_df, contrast,
+                      template_path, popmean=0,
+                      alpha=.05,
+                      mask=None, reverse_mask=True,
+                      index_slice=None,
+                      n_jobs=1, verbose=1):
     '''
     For the t-test uses:
     https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.ttest_1samp.html
@@ -738,6 +739,12 @@ def run_ttest_1samp(covars_df, contrast,
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
 
+    reverse_mask : bool, optional
+        Can optionally reverse the masking, assuming that no index_slice is
+        passed! If mask is passed as array, then will project data
+        back as array. If mask is passed as location to nii, then data will
+        be put back as a nifti object.
+
     index_slice : slices, tuple of slices, or None
         You may optional pass index slicing here. This will be applied
         before the mask. The benefit of using index slicing over a mask
@@ -772,13 +779,79 @@ def run_ttest_1samp(covars_df, contrast,
     all_subjects, data =\
         load_resid_data(covars_df=covars_df, contrast=contrast, template_path=template_path, mask=mask,
                         index_slice=index_slice, resid=True, n_jobs=n_jobs, verbose=verbose)
+
+    results = {}
     
     # Run ttest
     ttest_result = ttest_1samp(data, popmean=popmean, nan_policy='omit')
-    
-    # Run FDR
-    corrected_p_values = fdrcorrection(ttest_result.pvalue, alpha=alpha)
+    results['statistic'] = ttest_result.statistic
+    results['uncorrected_p_values'] = ttest_result.pvalue
 
-    return all_subjects, ttest_result.statistic, corrected_p_values
+    # Run FDR
+    results['corrected_p_values'] = fdrcorrection(ttest_result.pvalue, alpha=alpha)
+    
+    # Gen cohen's map
+    results['cohens'] = get_cohens(data)
+    
+    # If reverse_mask, reverse
+    if reverse_mask:
+        for key in results:
+            results[key] = reverse_mask_data(results[key], mask=mask)
+
+    results['subjects'] = all_subjects
+    return results
   
+
+def reverse_mask_data(data, mask):
+    '''If mask is None, return passed data as is.'''
+
+    if mask is None:
+        return data
+
+    # If location to nib file
+    if isinstance(mask, str):
+        raw_mask = nib.load(mask)
+        mask = raw_mask.get_fdata()
+        mask_affine = raw_mask.affine
+    
+    # If already mask array
+    else:
+        mask_affine = None
+
+    # If multiple subjects
+    if len(data.shape) == 2:
+        
+        projected = []
+        for subj in data:
+            projected.append(_project_single_subj(subj, mask, mask_affine))
+
+        return projected
+
+    # If single subject
+    return _project_single_subj(data, mask, mask_affine)
+
+
+def _project_single_subj(subj, mask, mask_affine):
+
+    # Make copy of mask to fill
+    proj_subj = mask.copy()
+    proj_subj[mask == 1] = subj
+    
+    # Wrap in nifti image if needed
+    if mask_affine is not None:
+        proj_subj = nib.Nifti1Image(proj_subj, affine=mask_affine)
+
+    return proj_subj
+
+
+
+
+
+
+
+    
+
+        
+
+
 

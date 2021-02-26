@@ -13,5 +13,6 @@ setup(name='Rely',
           'numpy',
           'pandas',
           'nibabel',
-          'joblib'
+          'joblib',
+          'statsmodels'
       ])
