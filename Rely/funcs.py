@@ -784,7 +784,7 @@ def run_1samp_summary(covars_df, contrast,
     results['uncorrected_p_values'] = ttest_result.pvalue
 
     # Run FDR
-    results['corrected_p_values'] = fdrcorrection(ttest_result.pvalue, alpha=alpha)
+    results['corrected_p_values'] = fdrcorrection(ttest_result.pvalue, alpha=alpha)[1]
     
     # Gen cohen's map
     results['cohens'] = get_cohens(data)
