@@ -29,7 +29,7 @@ def get_resid_with_nans(covars, data):
         # If not at least 2 subjects valid,
         # skip and propegate NaN's for this
         # voxel.
-        if len(mask) > 1:
+        if np.sum(mask) > 1:
         
             # Fit model
             model = LinearRegression().fit(covars[mask], data[mask, i])
@@ -836,16 +836,4 @@ def _project_single_subj(subj, mask, mask_affine):
         proj_subj = nib.Nifti1Image(proj_subj, affine=mask_affine)
 
     return proj_subj
-
-
-
-
-
-
-
-    
-
-        
-
-
 
