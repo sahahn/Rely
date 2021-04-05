@@ -1,4 +1,5 @@
 import nibabel as nib
+from nibabel import GiftiImage
 import numpy as np
 from sklearn.linear_model import LinearRegression
 import random
@@ -106,6 +107,20 @@ def _apply_template(subject, contrast, template_path):
     
     return f
 
+def _raw_from_nib(data, index_slice):
+    
+    # for index_slice from Gifti need to do anything?
+    if index_slice is not None:
+        return data.dataobj[index_slice]
+    
+    # If Gifti
+    elif isinstance(data, GiftiImage):
+        return data.darrays[0].data
+
+    # If other nibabel
+    return data.get_fdata()
+
+
 def _load_subject(subject, contrast, template_path, mask=None, index_slice=None, _print=print):
 
     # Get the specific path for this subject based on the passed template
@@ -116,10 +131,8 @@ def _load_subject(subject, contrast, template_path, mask=None, index_slice=None,
     # Load in the file as nibabel
     data = nib.load(f)
 
-    if index_slice is not None:
-        raw = data.dataobj[index_slice]
-    else:
-        raw = data.get_fdata()
+    # From raw to data
+    raw = _raw_from_nib(data, index_slice)
 
     # If no brain mask, just flatten
     if mask is None:
