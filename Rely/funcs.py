@@ -6,6 +6,7 @@ import random
 from sklearn.model_selection import train_test_split
 from joblib import Parallel, delayed
 import os
+from sklearn.model_selection import GroupShuffleSplit
 from scipy.stats import pearsonr, ttest_1samp
 from statsmodels.stats.multitest import fdrcorrection
 
@@ -271,7 +272,7 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
     if proc_type == 'split':
         _print('Starting Reliability Test with proc_type = "split"')
         
-        # Proc seperate if passed
+        # Proc separate if passed
         if proc_covars_func is not None:
             covars = proc_covars_func(covars)
             _print('Applied proc_covars_func on each covars df seperately')
@@ -337,8 +338,48 @@ def setup_subjects(covars_df, template_path, contrast, n_jobs, verbose):
 
     return all_subjects, _print
 
+
+def _test_split(all_subjects, stratify, groups, split_random_state):
+    
+    sorted_subjects = np.array(sorted(all_subjects))
+
+    if groups is not None and stratify is not None:
+        raise RuntimeError('groups and stratify cannot both be specified.')
+
+    # Proc the stratify series
+    if stratify is not None:
+        stratify_vals = stratify.loc[sorted_subjects]
+    else:
+        stratify_vals = None
+
+    # Proc the group series
+    if groups is not None:
+        groups_vals = groups.loc[sorted_subjects]
+    else:
+        groups_vals = None
+        
+    if groups is not None:
+        
+        splitter = GroupShuffleSplit(n_splits=1, test_size=.5,
+                                     random_state=split_random_state)
+        [*inds] = splitter.split(sorted_subjects, groups=groups_vals)
+
+        g1_subjects, g2_subjects = sorted_subjects[inds[0][0]], sorted_subjects[inds[0][1]]
+    
+    else:
+    
+        # Compute the train test split on the sorted subjects (for reproducibility)
+        g1_subjects, g2_subjects = train_test_split(sorted_subjects,
+                                                    test_size=.5,
+                                                    random_state=split_random_state,
+                                                    stratify=stratify_vals)
+
+    return g1_subjects, g2_subjects
+
+                                
 def run_rely(covars_df, contrast, template_path, mask=None,
-             index_slice=None, stratify=None, proc_covars_func=None,
+             index_slice=None, stratify=None, groups=None,
+             proc_covars_func=None,
              perf_series=None, proc_type='split',
              thresh=None, min_size=5,
              max_size=1000, every=1, n_repeats=100,
@@ -423,6 +464,23 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         of values will then be passed to the train_test_split function,
         and will specify that stratifying behavior is requested.
 
+        Stratifying behavior will be applied for only the main
+        split, and will ensure or rather try to ensure that the
+        same distribution of class values will be present in each split.
+
+        If this is passed as a series, then groups must be None.
+
+    groups : None or pandas Series
+        By default this is None, if passed a series, then this
+        series is expected to be indexed by subject, with
+        the same subjects as the passed covars_df. This series
+        will then be used to define the main train_test_split,
+        but will perform it according to group preserving behavior,
+        where members of the same group (as passed here) will
+        be preserved within the same split.
+
+        If this is passed as a series, then stratify must be None.
+
     proc_covars_func : None, function
         By default, this is set to None. Alternatively, you
         may pass a function in which the first positional argument accepts
@@ -501,21 +559,13 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     # Get all subjects and setup
     all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
 
-    # Proc the stratify series
-    if stratify is not None:
-        stratify_vals = stratify.loc[all_subjects]
-    else:
-        stratify_vals = None
 
     _print('Performing group split, w/ stratify =', stratify is not None,
+           ', w/ groups =', groups is not None, ', '
            'random_state =', split_random_state)
 
-    # Compute the train test split on the sorted subjects (for reproducibility)
-    g1_subjects, g2_subjects = train_test_split(sorted(all_subjects),
-                                                test_size=.5,
-                                                random_state=split_random_state,
-                                                stratify=stratify_vals)
-
+    # Apply split
+    g1_subjects, g2_subjects = _test_split(all_subjects, stratify, groups, split_random_state)
     _print('len(group1) =', len(g1_subjects), 'len(group2) =', len(g2_subjects))
 
     # Load the data - changes the groups if some data not found
