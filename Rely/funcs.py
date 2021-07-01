@@ -418,11 +418,13 @@ def run_rely(covars_df, data_df=None,
         Dataframe indexed by subject name that contains
         the data to be used. Note if provided then
         this will replace any arguments passed to
-        contrast and template_path.
+        contrast, template_path, mask and index_slice.
 
     contrast : str
         The name of the contrast, used along with the template
         path to define where to load data.
+
+        This parameter is ignored if data_df is not None.
 
     template_path : str
         A str indicating the template form for how a single
@@ -438,6 +440,8 @@ def run_rely(covars_df, data_df=None,
 
         As the template path.
 
+        This parameter is ignored if data_df is not None.
+
     mask : str, numpy array or None
         After data is loaded, it can optionally be
         masked. By default, this parameter is set to None.
@@ -449,6 +453,8 @@ def run_rely(covars_df, data_df=None,
         1, indicate that that value be kept when loading data.
         Lastly, a numpy array, where 1 == a value should be kept, with
         likewise the same shape as the data to load can be passed here.
+
+        This parameter is ignored if data_df is not None.
 
     index_slice : slices, tuple of slices, or None
         You may optional pass index slicing here. This will be applied
@@ -466,6 +472,8 @@ def run_rely(covars_df, data_df=None,
         (slice(1,5,2), slice(None,None,3)) here.
         
         By default this is None.
+
+        This parameter is ignored if data_df is not None.
 
     stratify : None or pandas Series
         By default this is None. If passed a series though,
@@ -918,3 +926,15 @@ def _project_single_subj(subj, mask, mask_affine):
 
     return proj_subj
 
+
+
+import pandas as pd
+
+df = pd.read_csv('N5970_comp_model_HCP_parcel_signals_contrast_1_winsorized_only_residualized.csv')
+df = df.set_index('src_subject_id')
+
+covars = ['sex', 'interview_age', 'puberty_scale', 'highest_parent_ed', 'race_ethnicity_2',
+          'race_ethnicity_3', 'race_ethnicity_4', 'race_ethnicity_5', 'rel_family_id', 'mri_info_deviceserialnumber']
+
+covars_df = df[covars]
+data_df = df[[col for col in list(df) if col not in covars]]
