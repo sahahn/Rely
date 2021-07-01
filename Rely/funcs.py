@@ -310,7 +310,7 @@ def rely(proc_type, covars, data, base_map, proc_covars_func,
          
     return all_corrs, all_p_values
 
-def setup_subjects(covars_df, template_path, contrast, n_jobs, verbose):
+def setup_subjects(covars_df, data_df, template_path, contrast, n_jobs, verbose):
 
     def _print(*args, **kwargs):
 
@@ -327,10 +327,13 @@ def setup_subjects(covars_df, template_path, contrast, n_jobs, verbose):
     subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
     all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
                    delayed(os.path.exists)(s) for s in subj_paths)
-
-    # Only include subject if found!
-    all_subjects = [s for s in covars_df.index if 
-                    os.path.exists(_apply_template(s, contrast, template_path))]
+    
+    # Only include subject if found in data or as files
+    if data_df is not None:
+        all_subjects = [s for s in covars_df.index if s in data_df.index]
+    else:
+        all_subjects = [s for s in covars_df.index if 
+                        os.path.exists(_apply_template(s, contrast, template_path))]
     _print('Found', len(all_subjects), 'subjects with data')
 
     missing_subjects = [s for s in covars_df.index if s not in all_subjects]
@@ -377,7 +380,8 @@ def _test_split(all_subjects, stratify, groups, split_random_state):
     return g1_subjects, g2_subjects
 
                                 
-def run_rely(covars_df, contrast, template_path, mask=None,
+def run_rely(covars_df, data_df=None,
+             contrast=None, template_path=None, mask=None,
              index_slice=None, stratify=None, groups=None,
              proc_covars_func=None,
              perf_series=None, proc_type='split',
@@ -409,6 +413,12 @@ def run_rely(covars_df, contrast, template_path, mask=None,
         the loaded data should be residualized by.
 
         Note: The dataframe must be indexed by subject name!
+
+    data_df : pandas DataFrame or None
+        Dataframe indexed by subject name that contains
+        the data to be used. Note if provided then
+        this will replace any arguments passed to
+        contrast and template_path.
 
     contrast : str
         The name of the contrast, used along with the template
@@ -557,8 +567,7 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     '''
     
     # Get all subjects and setup
-    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
-
+    all_subjects, _print = setup_subjects(covars_df, data_df, template_path, contrast, n_jobs, verbose)
 
     _print('Performing group split, w/ stratify =', stratify is not None,
            ', w/ groups =', groups is not None, ', '
@@ -568,20 +577,29 @@ def run_rely(covars_df, contrast, template_path, mask=None,
     g1_subjects, g2_subjects = _test_split(all_subjects, stratify, groups, split_random_state)
     _print('len(group1) =', len(g1_subjects), 'len(group2) =', len(g2_subjects))
 
-    # Load the data - changes the groups if some data not found
-    _print('Loading Group 1 Data')
-    d1 = get_data(g1_subjects, contrast,
-                  template_path, mask=mask,
-                  index_slice=index_slice,
-                  n_jobs=n_jobs,
-                  _print=_print)
+    if data_df is None:
 
-    _print('Loading Group 2 Data')
-    d2  = get_data(g2_subjects, contrast,
-                   template_path, mask=mask,
-                   index_slice=index_slice,
-                   n_jobs=n_jobs,
-                   _print=_print)
+        # Load the data from files
+        _print('Loading Group 1 Data')
+        d1 = get_data(g1_subjects, contrast,
+                      template_path, mask=mask,
+                      index_slice=index_slice,
+                      n_jobs=n_jobs,
+                      _print=_print)
+
+        _print('Loading Group 2 Data')
+        d2  = get_data(g2_subjects, contrast,
+                       template_path, mask=mask,
+                       index_slice=index_slice,
+                       n_jobs=n_jobs,
+                       _print=_print)
+       
+    else:
+
+        # Load data from the data df
+        _print('Loading Group 1 and 2 Data from data_df')
+        d1 = np.array(data_df.loc[g1_subjects])
+        d2 = np.array(data_df.loc[g2_subjects])
 
      # Assign variable to the co-variates per group
     c1 = covars_df.loc[g1_subjects].copy()
@@ -707,7 +725,7 @@ def load_resid_data(covars_df, contrast, template_path, mask=None,
     '''
 
     # Get all subjects and setup
-    all_subjects, _print = setup_subjects(covars_df, template_path, contrast, n_jobs, verbose)
+    all_subjects, _print = setup_subjects(covars_df, None, template_path, contrast, n_jobs, verbose)
 
     # Set covars to just the subjects found
     covars = covars_df.loc[all_subjects].copy()
