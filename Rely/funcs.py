@@ -324,9 +324,6 @@ def setup_subjects(covars_df, data_df, template_path, contrast, n_jobs, verbose)
 
     _print('Passed covars df with shape', covars_df.shape)
     _print('Determining valid subjects')
-    subj_paths = [_apply_template(s, contrast, template_path) for s in covars_df.index]
-    all_subjects = Parallel(n_jobs=n_jobs, prefer="threads")(
-                   delayed(os.path.exists)(s) for s in subj_paths)
     
     # Only include subject if found in data or as files
     if data_df is not None:
