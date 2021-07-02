@@ -922,16 +922,3 @@ def _project_single_subj(subj, mask, mask_affine):
         proj_subj = nib.Nifti1Image(proj_subj, affine=mask_affine)
 
     return proj_subj
-
-
-
-import pandas as pd
-
-df = pd.read_csv('N5970_comp_model_HCP_parcel_signals_contrast_1_winsorized_only_residualized.csv')
-df = df.set_index('src_subject_id')
-
-covars = ['sex', 'interview_age', 'puberty_scale', 'highest_parent_ed', 'race_ethnicity_2',
-          'race_ethnicity_3', 'race_ethnicity_4', 'race_ethnicity_5', 'rel_family_id', 'mri_info_deviceserialnumber']
-
-covars_df = df[covars]
-data_df = df[[col for col in list(df) if col not in covars]]
